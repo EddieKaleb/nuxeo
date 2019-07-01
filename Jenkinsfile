@@ -41,6 +41,8 @@ pipeline {
     HELM_RELEASE_REDIS = 'redis'
     SERVICE_REDIS = 'redis-master'
     SERVICE_ACCOUNT = 'jenkins'
+    ORG = 'nuxeo'
+    NUXEO_VERSION = readMavenPom().getVersion()
   }
   stages {
     stage('Compile, package and install') {
@@ -53,7 +55,7 @@ pipeline {
           ----------------------------------------"""
           withEnv(["MAVEN_OPTS=$MAVEN_OPTS -Xms512m -Xmx3072m"]) {
             echo "MAVEN_OPTS=$MAVEN_OPTS"
-            sh 'mvn -B -T0.8C install -DskipTests=true'
+            sh 'mvn -B -T0.8C -am -pl nuxeo-distribution/nuxeo-server-tomcat -Pdistrib -DskipTests=true install'
           }
         }
       }
@@ -105,6 +107,34 @@ pipeline {
         }
         failure {
           setGitHubBuildStatus('utests/dev', 'Unit tests - dev environment', 'FAILURE')
+        }
+      }
+    }
+    stage('Build and deploy Docker image') {
+      // only on PRs for now
+      when {
+        branch 'PR-*'
+      }
+      steps {
+        setGitHubBuildStatus('docker', 'Build and deploy Docker image', 'PENDING')
+        container('maven') {
+          withEnv(["VERSION=${NUXEO_VERSION}-${BRANCH_NAME}-${BUILD_NUMBER}"]) {
+            echo """
+            ----------------------------------------
+            Build and deploy Docker image
+            ----------------------------------------
+            Image tag: ${VERSION}
+            """
+            sh 'skaffold build -f nuxeo-distribution/nuxeo-server-tomcat/skaffold.yaml'
+          }
+        }
+      }
+      post {
+        success {
+          setGitHubBuildStatus('docker', 'Build and deploy Docker image', 'SUCCESS')
+        }
+        failure {
+          setGitHubBuildStatus('docker', 'Build and deploy Docker image', 'FAILURE')
         }
       }
     }
